@@ -39,3 +39,22 @@ func TestXMLParsing(t *testing.T) {
 		t.Errorf("xml.Unmarshal = %#+v; want %#+v", md, want)
 	}
 }
+
+func TestVersionComparison(t *testing.T) {
+	for _, tt := range []struct {
+		v1, v2 string
+		want   int
+	}{
+		{"RQR12.07_B0030", "RQR12.07_B0029", 1},
+		{"1.0.0", "1.0.1", -1},
+		{"0.9", "1.0", -1},
+		{"123", "100", 1},
+		{"12", "9", -1},
+		{"1.0.0", "1.0.0", 0},
+		{"1", "1", 0},
+	} {
+		if got := CompareVersions(tt.v1, tt.v2); got != tt.want {
+			t.Errorf("CompareVersions(%q, %q) = %v; want %v", tt.v1, tt.v2, got, tt.want)
+		}
+	}
+}

@@ -24,6 +24,8 @@ import (
 	"io"
 	"strings"
 
+	"github.com/blang/semver"
+
 	"github.com/google/go-cabfile/cabfile"
 )
 
@@ -82,4 +84,16 @@ func New(r io.ReadSeeker) (*LVFSCabinet, error) {
 		return nil, fmt.Errorf("could not extract release information from metadata file %q: %v", mdfn, err)
 	}
 	return &LVFSCabinet{cab, c.Release[0].Version}, nil
+}
+
+// CompareVersions compares two versions used in LVFS. If both versions parse
+// as semantic versions, compare them using semver. Otherwise fall back to a
+// string comparison.
+func CompareVersions(v1, v2 string) int {
+	s1, err1 := semver.Make(v1)
+	s2, err2 := semver.Make(v2)
+	if err1 == nil && err2 == nil {
+		return s1.Compare(s2)
+	}
+	return strings.Compare(v1, v2)
 }
