@@ -27,8 +27,11 @@ import (
 	"github.com/google/go-cabfile/cabfile"
 )
 
+// LVFSCabinet provides read-only access to Cabinet files shipped by the
+// Linux Vendor Firmware Service (LVFS).
 type LVFSCabinet struct {
 	*cabfile.Cabinet
+
 	Version string
 }
 
@@ -40,6 +43,7 @@ type release struct {
 	Version string `xml:"version,attr"`
 }
 
+// New returns a new LVFSCabinet with the metadata already parsed.
 func New(r io.ReadSeeker) (*LVFSCabinet, error) {
 	cab, err := cabfile.New(r)
 	if err != nil {
