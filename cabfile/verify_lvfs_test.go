@@ -34,7 +34,7 @@ type Metadata struct {
 	Location []string `xml:"component>releases>release>location"`
 }
 
-func artifacts(url string) ([]string, error) {
+func artifacts(c *http.Client, url string) ([]string, error) {
 	resp, err := http.Get(metadataURL)
 	if err != nil {
 		return nil, err
@@ -49,24 +49,28 @@ func artifacts(url string) ([]string, error) {
 	if _, err := io.Copy(&buf, r); err != nil {
 		return nil, err
 	}
-	var c Metadata
-	err = xml.Unmarshal(buf.Bytes(), &c)
-	return c.Location, err
+	var md Metadata
+	err = xml.Unmarshal(buf.Bytes(), &md)
+	return md.Location, err
 }
 
 // TestLVFSFileParsing downloads all available cab files from LVFS and checks
 // if their file list contains a *.metainfo.xml file.
 func TestLVFSFileParsing(t *testing.T) {
+	c := &http.Client{}
+
 	// TODO: Unpack the cabs using gcab and verify that the content is
 	// hash-identical to cabfile's unpacking method.
 
-	urls, err := artifacts(metadataURL)
+	urls, err := artifacts(c, metadataURL)
 	if err != nil {
 		t.Fatalf("Could not ingest metadata from %q: %v", metadataURL, err)
 	}
 cabFile:
 	for _, url := range urls {
-		resp, err := http.Get(url)
+		req, err := http.NewRequest("GET", url, nil)
+		req.Header.Add("User-Agent", "Go-cabfile")
+		resp, err := c.Do(req)
 		if err != nil {
 			t.Errorf("Could not fetch URL %q: %v", url, err)
 			continue
