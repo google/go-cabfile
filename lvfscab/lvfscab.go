@@ -34,10 +34,12 @@ import (
 type LVFSCabinet struct {
 	*cabfile.Cabinet
 
+	ID      string
 	Version string
 }
 
 type component struct {
+	ID      string    `xml:"id"`
 	Release []release `xml:"releases>release"`
 }
 
@@ -75,6 +77,9 @@ func New(r io.ReadSeeker) (*LVFSCabinet, error) {
 	if err := xml.Unmarshal(mdbuf.Bytes(), &c); err != nil {
 		return nil, fmt.Errorf("could not parse metadata file %q: %v", mdfn, err)
 	}
+	if c.ID == "" {
+		return nil, fmt.Errorf("could not determine component ID from metadata file %q", mdfn)
+	}
 	// The AppStream specification encourages to list multiple releases
 	// in the metadata to provide update descriptions. We make the
 	// assumption here that the first release matches the release we
@@ -83,7 +88,11 @@ func New(r io.ReadSeeker) (*LVFSCabinet, error) {
 	if len(c.Release) < 1 || c.Release[0].Version == "" {
 		return nil, fmt.Errorf("could not extract release information from metadata file %q: %v", mdfn, err)
 	}
-	return &LVFSCabinet{cab, c.Release[0].Version}, nil
+	return &LVFSCabinet{
+		Cabinet: cab,
+		ID:      c.ID,
+		Version: c.Release[0].Version,
+	}, nil
 }
 
 // CompareVersions compares two versions used in LVFS. If both versions parse

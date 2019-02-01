@@ -23,13 +23,15 @@ import (
 func TestXMLParsing(t *testing.T) {
 	const testData = `<?xml version="1.0" encoding="UTF-8"?>
 <component type="firmware">
+  <id>org.foo.bar</id>
   <releases>
     <release urgency="low" version="1.2.6" timestamp="1480683870">
     </release>
   </releases>
 </component>`
 	want := component{
-		[]release{release{Version: "1.2.6"}},
+		ID:      "org.foo.bar",
+		Release: []release{release{Version: "1.2.6"}},
 	}
 	var md component
 	if err := xml.Unmarshal([]byte(testData), &md); err != nil {
