@@ -32,14 +32,18 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"time"
 )
 
 // Cabinet provides read-only access to Microsoft Cabinet files.
 type Cabinet struct {
-	r     io.ReadSeeker
-	hdr   *cfHeader
-	fldrs []*cfFolder
-	files []*file
+	r          io.ReadSeeker
+	hdr        *cfHeader
+	fldrs      []*cfFolder
+	files      []*file
+	next_index int
+	next_r     io.ReadSeeker
 }
 
 type cfHeader struct {
@@ -149,6 +153,7 @@ func New(r io.ReadSeeker) (*Cabinet, error) {
 		default:
 			return nil, fmt.Errorf("folder compressed with unsupported algorithm %d", fldr.TypeCompress)
 		}
+		//fmt.Printf("fldrs: %+v\n", &fldr)
 		fldrs = append(fldrs, &fldr)
 	}
 
@@ -170,13 +175,22 @@ func New(r io.ReadSeeker) (*Cabinet, error) {
 		if err != nil {
 			return nil, fmt.Errorf("could not read filename for file %d: %v", i, err)
 		}
+		//fmt.Println("seek to:", off+int64(len(fn)))
 		if _, err := r.Seek(off+int64(len(fn)), io.SeekStart); err != nil {
 			return nil, fmt.Errorf("could not seek to the end of file entry %d: %v", i, err)
 		}
+		//fmt.Printf("files: %+v  %+v\n", &f, string(fn[:len(fn)-1]))
 		files = append(files, &file{&f, string(fn[:len(fn)-1])})
 	}
+	//sort.Slice(files, func(i, j int) bool {
+	//	return files[i].COFFCabStart < files[j].COFFCabStart
+	//})
 
-	return &Cabinet{r, &hdr, fldrs, files}, nil
+	//for _, f := range files {
+	//	fmt.Printf(" %+v %d %d %d %d\n", f, f.IFolder, f.UOffFolderStart, f.Date, f.Time)
+	//}
+
+	return &Cabinet{r, &hdr, fldrs, files, 0, nil}, nil
 }
 
 // FileList returns the list of filenames in the Cabinet file.
@@ -269,3 +283,50 @@ func (c *Cabinet) Content(name string) (io.Reader, error) {
 	}
 	return nil, fmt.Errorf("file %q not found in Cabinet", name)
 }
+
+// Next() returns files one at a time with a reader for ease walking through all
+// the files in the CAB archive.
+func (c *Cabinet) Next() (io.Reader, os.FileInfo, error) {
+	if c.next_index >= len(c.files) {
+		return nil, nil, io.EOF
+	}
+
+	f := c.files[c.next_index]
+
+	// The case when we need to open a new folder for reading
+	if c.next_index == 0 || c.files[c.next_index-1].IFolder != f.IFolder {
+		data, err := c.folderData(f.IFolder)
+		if err != nil {
+			return nil, nil, fmt.Errorf("could not acquire uncompressed data for folder %d: %v", f.IFolder, err)
+		}
+		c.next_r = data
+	}
+
+	if _, err := c.next_r.Seek(int64(f.UOffFolderStart), io.SeekStart); err != nil {
+		return nil, nil, fmt.Errorf("could not seek to start of data: %v", err)
+	}
+
+	fs := fileStat{
+		name: f.name,
+		size: int64(f.CBFile),
+	}
+	c.next_index++
+	return io.Reader(io.LimitReader(c.next_r, int64(f.CBFile))),
+		&fs, nil
+}
+
+// A fileStat is the implementation of FileInfo returned by Stat and Lstat.
+type fileStat struct {
+	name string
+	size int64
+	//mode    FileMode
+	modTime time.Time
+	//sys     syscall.Stat_t
+}
+
+func (fs *fileStat) Name() string       { return fs.name }
+func (fs *fileStat) Size() int64        { return fs.size }
+func (fs *fileStat) Mode() os.FileMode  { return os.FileMode(0700) }
+func (fs *fileStat) ModTime() time.Time { return fs.modTime }
+func (fs *fileStat) Sys() interface{}   { return nil }
+func (fs *fileStat) IsDir() bool        { return false }
