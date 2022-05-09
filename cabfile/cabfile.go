@@ -314,7 +314,7 @@ func (c *Cabinet) Next() (io.Reader, os.FileInfo, error) {
 		hour := f.Time >> 11
 		min := (f.Time >> 5) & 63
 		sec := (f.Time & 31) << 1
-		fs.modTime = time.Date(int(year), time.Month(month+1), int(day), int(hour), int(min), int(sec), 0, time.UTC)
+		fs.modTime = time.Date(int(year), time.Month(month), int(day), int(hour), int(min), int(sec), 0, time.UTC)
 	}
 
 	c.next_index++
