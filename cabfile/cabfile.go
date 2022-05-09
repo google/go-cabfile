@@ -300,6 +300,23 @@ func (c *Cabinet) Next() (io.Reader, os.FileInfo, error) {
 		name: f.name,
 		size: int64(f.CBFile),
 	}
+
+	{
+		// date: Date of this file, in the format ((year–1980) << 9)+(month << 5)+(day), where
+		//   month={1..12} and day={1..31}. This "date" is typically considered the "last modified" date in local
+		//   time, but the actual definition is application-defined.
+		// time: Time of this file, in the format (hour << 11)+(minute << 5)+(seconds/2), where
+		//   hour={0..23}. This "time" is typically considered the "last modified" time in local time, but the
+		//   actual definition is application-defined.
+		year := (f.Date >> 9) + 1980
+		month := (f.Date >> 5) & 15
+		day := f.Date & 31
+		hour := f.Time >> 11
+		min := (f.Time >> 5) & 63
+		sec := (f.Time & 31) << 1
+		fs.modTime = time.Date(int(year), time.Month(month+1), int(day), int(hour), int(min), int(sec), 0, time.UTC)
+	}
+
 	c.next_index++
 	return io.Reader(io.LimitReader(c.next_r, int64(f.CBFile))),
 		&fs, nil
