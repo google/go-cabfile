@@ -153,7 +153,6 @@ func New(r io.ReadSeeker) (*Cabinet, error) {
 		default:
 			return nil, fmt.Errorf("folder compressed with unsupported algorithm %d", fldr.TypeCompress)
 		}
-		//fmt.Printf("fldrs: %+v\n", &fldr)
 		fldrs = append(fldrs, &fldr)
 	}
 
@@ -175,20 +174,11 @@ func New(r io.ReadSeeker) (*Cabinet, error) {
 		if err != nil {
 			return nil, fmt.Errorf("could not read filename for file %d: %v", i, err)
 		}
-		//fmt.Println("seek to:", off+int64(len(fn)))
 		if _, err := r.Seek(off+int64(len(fn)), io.SeekStart); err != nil {
 			return nil, fmt.Errorf("could not seek to the end of file entry %d: %v", i, err)
 		}
-		//fmt.Printf("files: %+v  %+v\n", &f, string(fn[:len(fn)-1]))
 		files = append(files, &file{&f, string(fn[:len(fn)-1])})
 	}
-	//sort.Slice(files, func(i, j int) bool {
-	//	return files[i].COFFCabStart < files[j].COFFCabStart
-	//})
-
-	//for _, f := range files {
-	//	fmt.Printf(" %+v %d %d %d %d\n", f, f.IFolder, f.UOffFolderStart, f.Date, f.Time)
-	//}
 
 	return &Cabinet{r, &hdr, fldrs, files, 0, nil}, nil
 }
@@ -317,11 +307,9 @@ func (c *Cabinet) Next() (io.Reader, os.FileInfo, error) {
 
 // A fileStat is the implementation of FileInfo returned by Stat and Lstat.
 type fileStat struct {
-	name string
-	size int64
-	//mode    FileMode
+	name    string
+	size    int64
 	modTime time.Time
-	//sys     syscall.Stat_t
 }
 
 func (fs *fileStat) Name() string       { return fs.name }
