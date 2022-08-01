@@ -32,7 +32,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 )
 
 // Cabinet provides read-only access to Microsoft Cabinet files.
@@ -57,7 +56,7 @@ type cfHeader struct {
 	Flags        uint16 // cabinet file option indicators
 	SetID        uint16 // must be the same for all cabinets in a set
 	ICabinet     uint16 // number of this cabinet file in a set
-	CBCFHeader   uint16 // size of abReserve field in the header in bytes (optional)
+	CBCFHeader   uint16 // size of abReserve field in the CFHeader in bytes (optional)
 	CBCFFolder   uint8  // size of abReserve field in each CFFolder entry in bytes (optional)
 	CBCFData     uint8  // size of abReserve field in each CFData entry in bytes (optional)
 }
@@ -187,8 +186,10 @@ func New(r io.ReadSeeker) (*Cabinet, error) {
 		return nil, errors.New("multi-part Cabinet files are unsupported")
 	}
 
-	// skip abReserve by skipping ahead cbCFHeader bytes
-	ioutil.ReadAll(io.LimitReader(r, int64(hdr.CBCFHeader)))
+	// skip abReserve by reading cbCFHeader bytes, discarding the result
+	if _, err := io.ReadFull(r, make([]byte, hdr.CBCFHeader)); err != nil {
+		return nil, fmt.Errorf("could not skip %d header abReserve bytes: %w", hdr.CBCFHeader, err)
+	}
 
 	// CFFOLDER
 	var fldrs []*cfFolder
