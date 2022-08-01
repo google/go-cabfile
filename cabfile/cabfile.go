@@ -56,6 +56,9 @@ type cfHeader struct {
 	Flags        uint16 // cabinet file option indicators
 	SetID        uint16 // must be the same for all cabinets in a set
 	ICabinet     uint16 // number of this cabinet file in a set
+	CBCFHeader   uint16 // size of abReserve field in the CFHeader in bytes (optional)
+	CBCFFolder   uint8  // size of abReserve field in each CFFolder entry in bytes (optional)
+	CBCFData     uint8  // size of abReserve field in each CFData entry in bytes (optional)
 }
 
 const (
@@ -117,9 +120,59 @@ func New(r io.ReadSeeker) (*Cabinet, error) {
 
 	// CFHEADER
 	var hdr cfHeader
-	if err := binary.Read(r, binary.LittleEndian, &hdr); err != nil {
-		return nil, fmt.Errorf("could not deserialize header: %v", err)
+	if err := binary.Read(r, binary.LittleEndian, &hdr.Signature); err != nil {
+		return nil, fmt.Errorf("could not deserialize header signature: %w", err)
 	}
+	if err := binary.Read(r, binary.LittleEndian, &hdr.Reserved1); err != nil {
+		return nil, fmt.Errorf("could not deserialize header reserved1: %w", err)
+	}
+	if err := binary.Read(r, binary.LittleEndian, &hdr.CBCabinet); err != nil {
+		return nil, fmt.Errorf("could not deserialize header cbCabinet: %w", err)
+	}
+	if err := binary.Read(r, binary.LittleEndian, &hdr.Reserved2); err != nil {
+		return nil, fmt.Errorf("could not deserialize header reserved2: %w", err)
+	}
+	if err := binary.Read(r, binary.LittleEndian, &hdr.COFFFiles); err != nil {
+		return nil, fmt.Errorf("could not deserialize header coffFiles: %w", err)
+	}
+	if err := binary.Read(r, binary.LittleEndian, &hdr.Reserved3); err != nil {
+		return nil, fmt.Errorf("could not deserialize header reserved3: %w", err)
+	}
+	if err := binary.Read(r, binary.LittleEndian, &hdr.VersionMinor); err != nil {
+		return nil, fmt.Errorf("could not deserialize header versionMinor: %w", err)
+	}
+	if err := binary.Read(r, binary.LittleEndian, &hdr.VersionMajor); err != nil {
+		return nil, fmt.Errorf("could not deserialize header versionMajor: %w", err)
+	}
+	if err := binary.Read(r, binary.LittleEndian, &hdr.CFolders); err != nil {
+		return nil, fmt.Errorf("could not deserialize header cFolder: %w", err)
+	}
+	if err := binary.Read(r, binary.LittleEndian, &hdr.CFiles); err != nil {
+		return nil, fmt.Errorf("could not deserialize header cFiles: %w", err)
+	}
+	if err := binary.Read(r, binary.LittleEndian, &hdr.Flags); err != nil {
+		return nil, fmt.Errorf("could not deserialize header flags: %w", err)
+	}
+	if err := binary.Read(r, binary.LittleEndian, &hdr.SetID); err != nil {
+		return nil, fmt.Errorf("could not deserialize header setID: %w", err)
+	}
+	if err := binary.Read(r, binary.LittleEndian, &hdr.ICabinet); err != nil {
+		return nil, fmt.Errorf("could not deserialize header iCabinet: %w", err)
+	}
+
+	// if cfhdrRESERVE_PRESENT flag is set, parse the optional abReserve size fields
+	if (hdr.Flags & hdrReservePresent) != 0 {
+		if err := binary.Read(r, binary.LittleEndian, &hdr.CBCFHeader); err != nil {
+			return nil, fmt.Errorf("could not deserialize header cbCFHeader: %w", err)
+		}
+		if err := binary.Read(r, binary.LittleEndian, &hdr.CBCFFolder); err != nil {
+			return nil, fmt.Errorf("could not deserialize header cbCFFolder: %w", err)
+		}
+		if err := binary.Read(r, binary.LittleEndian, &hdr.CBCFData); err != nil {
+			return nil, fmt.Errorf("could not deserialize header cbCFData: %w", err)
+		}
+	}
+
 	if !bytes.Equal(hdr.Signature[:], []byte("MSCF")) {
 		return nil, fmt.Errorf("invalid Cabinet file signature: %v", hdr.Signature)
 	}
@@ -132,8 +185,10 @@ func New(r io.ReadSeeker) (*Cabinet, error) {
 	if (hdr.Flags&hdrPrevCabinet) != 0 || (hdr.Flags&hdrNextCabinet) != 0 {
 		return nil, errors.New("multi-part Cabinet files are unsupported")
 	}
-	if (hdr.Flags & hdrReservePresent) != 0 {
-		return nil, errors.New("Cabinet files with reserved fields are unsupported")
+
+	// skip abReserve by reading cbCFHeader bytes, discarding the result
+	if _, err := io.ReadFull(r, make([]byte, hdr.CBCFHeader)); err != nil {
+		return nil, fmt.Errorf("could not skip %d header abReserve bytes: %w", hdr.CBCFHeader, err)
 	}
 
 	// CFFOLDER
