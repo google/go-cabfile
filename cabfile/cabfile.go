@@ -38,12 +38,12 @@ import (
 
 // Cabinet provides read-only access to Microsoft Cabinet files.
 type Cabinet struct {
-	r          io.ReadSeeker
-	hdr        *cfHeader
-	fldrs      []*cfFolder
-	files      []*file
-	next_index int
-	next_r     io.ReadSeeker
+	r       io.ReadSeeker
+	hdr     *cfHeader
+	fldrs   []*cfFolder
+	files   []*file
+	nextIdx int
+	nextRdr io.ReadSeeker
 }
 
 type cfHeader struct {
@@ -277,22 +277,22 @@ func (c *Cabinet) Content(name string) (io.Reader, error) {
 // Next() returns files one at a time with a reader for ease walking through all
 // the files in the CAB archive.
 func (c *Cabinet) Next() (io.Reader, os.FileInfo, error) {
-	if c.next_index >= len(c.files) {
+	if c.nextIdx >= len(c.files) {
 		return nil, nil, io.EOF
 	}
 
-	f := c.files[c.next_index]
+	f := c.files[c.nextIdx]
 
 	// The case when we need to open a new folder for reading
-	if c.next_index == 0 || c.files[c.next_index-1].IFolder != f.IFolder {
+	if c.nextIdx == 0 || c.files[c.nextIdx-1].IFolder != f.IFolder {
 		data, err := c.folderData(f.IFolder)
 		if err != nil {
 			return nil, nil, fmt.Errorf("could not acquire uncompressed data for folder %d: %v", f.IFolder, err)
 		}
-		c.next_r = data
+		c.nextRdr = data
 	}
 
-	if _, err := c.next_r.Seek(int64(f.UOffFolderStart), io.SeekStart); err != nil {
+	if _, err := c.nextRdr.Seek(int64(f.UOffFolderStart), io.SeekStart); err != nil {
 		return nil, nil, fmt.Errorf("could not seek to start of data: %v", err)
 	}
 
@@ -317,8 +317,8 @@ func (c *Cabinet) Next() (io.Reader, os.FileInfo, error) {
 		fs.modTime = time.Date(int(year), time.Month(month), int(day), int(hour), int(min), int(sec), 0, time.UTC)
 	}
 
-	c.next_index++
-	return io.Reader(io.LimitReader(c.next_r, int64(f.CBFile))),
+	c.nextIdx++
+	return io.Reader(io.LimitReader(c.nextRdr, int64(f.CBFile))),
 		&fs, nil
 }
 

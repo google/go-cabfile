@@ -20,6 +20,7 @@ import (
 	"encoding/xml"
 	"io"
 	"io/ioutil"
+	"math/rand"
 	"net/http"
 	"os"
 	"strings"
@@ -40,11 +41,16 @@ func artifacts(c *http.Client, url string) ([]string, error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
-	r, err := gzip.NewReader(resp.Body)
-	if err != nil {
-		return nil, err
+	r := io.Reader(resp.Body)
+	if resp.ContentLength > 0 {
+		// Legacy support: In Go 1.7s or greater uncompression is automatic.
+		gzr, err := gzip.NewReader(resp.Body)
+		if err != nil {
+			return nil, err
+		}
+		defer gzr.Close()
+		r = gzr
 	}
-	defer r.Close()
 	var buf bytes.Buffer
 	if _, err := io.Copy(&buf, r); err != nil {
 		return nil, err
@@ -66,6 +72,13 @@ func TestLVFSFileParsing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Could not ingest metadata from %q: %v", metadataURL, err)
 	}
+
+	// Select a random subset of the files to speed the tests up
+	if len(urls) > 10 {
+		rand.Shuffle(len(urls), func(i, j int) { urls[i], urls[j] = urls[j], urls[i] })
+		urls = urls[:10]
+	}
+
 cabFile:
 	for _, url := range urls {
 		req, err := http.NewRequest("GET", url, nil)
