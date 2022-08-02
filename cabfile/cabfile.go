@@ -136,9 +136,9 @@ func New(r io.ReadSeeker) (*Cabinet, error) {
 	if (hdr.Flags&hdrPrevCabinet) != 0 || (hdr.Flags&hdrNextCabinet) != 0 {
 		return nil, errors.New("multi-part Cabinet files are unsupported")
 	}
-	if (hdr.Flags & hdrReservePresent) != 0 {
+	/*if (hdr.Flags & hdrReservePresent) != 0 {
 		return nil, errors.New("Cabinet files with reserved fields are unsupported")
-	}
+	}*/
 
 	// CFFOLDER
 	var fldrs []*cfFolder

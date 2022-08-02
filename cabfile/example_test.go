@@ -4,45 +4,54 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
+	"testing"
 
 	cabfile "github.com/google/go-cabfile/cabfile"
 )
 
+// Pull a file down and return a reader for the contents
 func getArtifact(c *http.Client, url string) (io.ReadSeeker, error) {
-	resp, err := http.Get(metadataURL)
+	resp, err := http.Get(url)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 	var buf bytes.Buffer
-	if _, err := buf.ReadFrom(resp.Body); err != nil {
+	if _, err := io.Copy(&buf, resp.Body); err != nil {
 		return nil, err
 	}
 	return bytes.NewReader(buf.Bytes()), err
 }
 
-func ExampleNext() {
+func TestNextCall(t *testing.T) {
+	//exampleURL := "https://www2.census.gov/econ1997/VIUS/CD-ROM/install/vi97.cab"
+	exampleURL := "http://cns.utoronto.ca/test/archive/wsusscan.cab.0601013"
+
 	c := &http.Client{}
-	f, err := getArtifact(c, "http://cns.utoronto.ca/test/archive/wsusscan.cab")
+	f, err := getArtifact(c, exampleURL)
 	if err != nil {
-		log.Fatal("Error reading ususscan example", err)
+		t.Fatalf("Could not read example cab file %q: %v", exampleURL, err)
 	}
 
-	buf := make([]byte, 4)
+	buf := make([]byte, 8)
 	cabinet, err := cabfile.New(f)
+	if err != nil {
+		t.Fatalf("Could not parse example cab file %q: %v", exampleURL, err)
+	}
 	for {
+		fmt.Printf("calling next")
 		r, finfo, err := cabinet.Next()
+		fmt.Printf("called next")
 
 		if err != nil {
-			break
+			return
 		}
 
 		// Read 4 bytes from file
 		_, err = r.Read(buf)
 
 		// Print out file info and bytes
-		fmt.Println("r", r, "finfo", finfo, "buf", buf)
+		fmt.Printf("r %+v\n finfo: %+v\n buf: %+v\n", r, finfo, buf)
 	}
 }
