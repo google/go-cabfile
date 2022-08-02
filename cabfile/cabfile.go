@@ -32,14 +32,18 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"time"
 )
 
 // Cabinet provides read-only access to Microsoft Cabinet files.
 type Cabinet struct {
-	r     io.ReadSeeker
-	hdr   *cfHeader
-	fldrs []*cfFolder
-	files []*file
+	r       io.ReadSeeker
+	hdr     *cfHeader
+	fldrs   []*cfFolder
+	files   []*file
+	nextIdx int
+	nextRdr io.ReadSeeker
 }
 
 type cfHeader struct {
@@ -231,7 +235,7 @@ func New(r io.ReadSeeker) (*Cabinet, error) {
 		files = append(files, &file{&f, string(fn[:len(fn)-1])})
 	}
 
-	return &Cabinet{r, &hdr, fldrs, files}, nil
+	return &Cabinet{r, &hdr, fldrs, files, 0, nil}, nil
 }
 
 // FileList returns the list of filenames in the Cabinet file.
@@ -324,3 +328,65 @@ func (c *Cabinet) Content(name string) (io.Reader, error) {
 	}
 	return nil, fmt.Errorf("file %q not found in Cabinet", name)
 }
+
+// Next() returns files one at a time with a reader for ease walking through all
+// the files in the CAB archive.
+func (c *Cabinet) Next() (io.Reader, os.FileInfo, error) {
+	if c.nextIdx >= len(c.files) {
+		return nil, nil, io.EOF
+	}
+
+	f := c.files[c.nextIdx]
+
+	// The case when we need to open a new folder for reading
+	if c.nextIdx == 0 || c.files[c.nextIdx-1].IFolder != f.IFolder {
+		data, err := c.folderData(f.IFolder)
+		if err != nil {
+			return nil, nil, fmt.Errorf("could not acquire uncompressed data for folder %d: %v", f.IFolder, err)
+		}
+		c.nextRdr = data
+	}
+
+	if _, err := c.nextRdr.Seek(int64(f.UOffFolderStart), io.SeekStart); err != nil {
+		return nil, nil, fmt.Errorf("could not seek to start of data: %v", err)
+	}
+
+	fs := fileStat{
+		name: f.name,
+		size: int64(f.CBFile),
+	}
+
+	{
+		// date: Date of this file, in the format ((year–1980) << 9)+(month << 5)+(day), where
+		//   month={1..12} and day={1..31}. This "date" is typically considered the "last modified" date in local
+		//   time, but the actual definition is application-defined.
+		// time: Time of this file, in the format (hour << 11)+(minute << 5)+(seconds/2), where
+		//   hour={0..23}. This "time" is typically considered the "last modified" time in local time, but the
+		//   actual definition is application-defined.
+		year := (f.Date >> 9) + 1980
+		month := (f.Date >> 5) & 15
+		day := f.Date & 31
+		hour := f.Time >> 11
+		min := (f.Time >> 5) & 63
+		sec := (f.Time & 31) << 1
+		fs.modTime = time.Date(int(year), time.Month(month), int(day), int(hour), int(min), int(sec), 0, time.UTC)
+	}
+
+	c.nextIdx++
+	return io.Reader(io.LimitReader(c.nextRdr, int64(f.CBFile))),
+		&fs, nil
+}
+
+// A fileStat is the implementation of FileInfo returned by Stat and Lstat.
+type fileStat struct {
+	name    string
+	size    int64
+	modTime time.Time
+}
+
+func (fs *fileStat) Name() string       { return fs.name }
+func (fs *fileStat) Size() int64        { return fs.size }
+func (fs *fileStat) Mode() os.FileMode  { return os.FileMode(0700) }
+func (fs *fileStat) ModTime() time.Time { return fs.modTime }
+func (fs *fileStat) Sys() interface{}   { return nil }
+func (fs *fileStat) IsDir() bool        { return false }
