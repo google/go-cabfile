@@ -40,11 +40,16 @@ func artifacts(c *http.Client, url string) ([]string, error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
-	r, err := gzip.NewReader(resp.Body)
-	if err != nil {
-		return nil, err
+	r := io.Reader(resp.Body)
+	if resp.ContentLength > 0 {
+		// Legacy support: In Go 1.7 or greater decompression is automatic.
+		gzr, err := gzip.NewReader(resp.Body)
+		if err != nil {
+			return nil, err
+		}
+		defer gzr.Close()
+		r = gzr
 	}
-	defer r.Close()
 	var buf bytes.Buffer
 	if _, err := io.Copy(&buf, r); err != nil {
 		return nil, err
