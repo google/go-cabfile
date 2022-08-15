@@ -19,14 +19,20 @@ import (
 	"compress/gzip"
 	"encoding/xml"
 	"io"
-	"io/ioutil"
 	"net/http"
+	"net/url"
 	"os"
+	"path"
 	"strings"
 	"testing"
 )
 
-const metadataURL = "https://cdn.fwupd.org/downloads/firmware.xml.gz"
+const repoURL = "https://cdn.fwupd.org/downloads"
+
+// Set mirrorURL to a file:/// URL (without trailing slash) in case you do not
+// want to fetch from the internet. lvfs-website's contrib/sync-pulp.py can
+// help you sync.
+var mirrorURL = ""
 
 // Metadata just provides a full list of all artifacts currently published
 // by LVFS and ignores all other data in the XML.
@@ -35,14 +41,18 @@ type Metadata struct {
 }
 
 func artifacts(c *http.Client, url string) ([]string, error) {
-	resp, err := http.Get(metadataURL)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.Do(req)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 	r := io.Reader(resp.Body)
-	if resp.ContentLength > 0 {
-		// Legacy support: In Go 1.7 or greater decompression is automatic.
+	if resp.ContentLength > 0 || req.URL.Scheme == "file" {
+		// Legacy support: In Go 1.7 or greater decompression is automatic for HTTP.
 		gzr, err := gzip.NewReader(resp.Body)
 		if err != nil {
 			return nil, err
@@ -59,55 +69,78 @@ func artifacts(c *http.Client, url string) ([]string, error) {
 	return md.Location, err
 }
 
+func parseFile(t *testing.T, c *http.Client, u string) {
+	if mirrorURL != "" {
+		ur, err := url.Parse(u)
+		if err != nil {
+			t.Fatalf("Could not parse location URL %q: %v", u, err)
+		}
+		fn := path.Base(ur.Path)
+		// TODO: Use url.JoinPath
+		u = path.Join(mirrorURL, fn)
+	}
+
+	t.Logf("Fetching %s...", u)
+	req, err := http.NewRequest("GET", u, nil)
+	req.Header.Add("User-Agent", "Go-cabfile")
+	resp, err := c.Do(req)
+	if err != nil {
+		t.Errorf("Could not fetch URL %q: %v", u, err)
+		return
+	}
+	defer resp.Body.Close()
+
+	tmpf, err := os.CreateTemp("", "verify_lvfs_test")
+	if err != nil {
+		t.Fatalf("Could not create temporary file: %v", err)
+	}
+	defer func() {
+		os.Remove(tmpf.Name())
+		tmpf.Close()
+	}()
+	if _, err := io.Copy(tmpf, resp.Body); err != nil {
+		t.Errorf("Could not copy file content to temporary file: %v", err)
+		return
+	}
+	cab, err := New(tmpf)
+	if err != nil {
+		t.Errorf("Failed to parse cab file from URL %q: %v", u, err)
+		return
+	}
+	const metainfoName = ".metainfo.xml"
+	fns := cab.FileList()
+	for _, fn := range fns {
+		if strings.HasSuffix(fn, metainfoName) {
+			// Found the required file.
+			return
+		}
+	}
+	t.Errorf("Cabinet file downloaded from %q misses *%s member; file list: %v", u, metainfoName, fns)
+}
+
 // TestLVFSFileParsing downloads all available cab files from LVFS and checks
 // if their file list contains a *.metainfo.xml file.
 func TestLVFSFileParsing(t *testing.T) {
-	c := &http.Client{}
+	// TODO: Use url.JoinPath (Go 1.19+)
+	u := repoURL + "/firmware.xml.gz"
+	tr := &http.Transport{}
+	if mirrorURL != "" {
+		tr.RegisterProtocol("file", http.NewFileTransport(http.Dir("/")))
+		// TODO: Use url.JoinPath (Go 1.19+)
+		u = mirrorURL + "/firmware.xml.gz"
+	}
+	c := &http.Client{Transport: tr}
 
 	// TODO: Unpack the cabs using gcab and verify that the content is
 	// hash-identical to cabfile's unpacking method.
 
-	t.Logf("Fetching %s...", metadataURL)
-	urls, err := artifacts(c, metadataURL)
+	t.Logf("Fetching %s...", u)
+	urls, err := artifacts(c, u)
 	if err != nil {
-		t.Fatalf("Could not ingest metadata from %q: %v", metadataURL, err)
+		t.Fatalf("Could not ingest metadata from %q: %v", u, err)
 	}
 	t.Logf("Found %d artifacts.", len(urls))
-cabFile:
-	for _, url := range urls {
-		t.Logf("Fetching %s...", url)
-		req, err := http.NewRequest("GET", url, nil)
-		req.Header.Add("User-Agent", "Go-cabfile")
-		resp, err := c.Do(req)
-		if err != nil {
-			t.Errorf("Could not fetch URL %q: %v", url, err)
-			continue
-		}
-		defer resp.Body.Close()
-		tmpf, err := ioutil.TempFile("", "verify_lvfs_test")
-		if err != nil {
-			t.Fatalf("Could not create temporary file: %v", err)
-		}
-		defer os.Remove(tmpf.Name())
-		if _, err := io.Copy(tmpf, resp.Body); err != nil {
-			t.Errorf("Could not copy file content to temporary file: %v", err)
-			tmpf.Close()
-			continue
-		}
-		c, err := New(tmpf)
-		if err != nil {
-			t.Errorf("Failed to parse cab file from URL %q: %v", url, err)
-			tmpf.Close()
-			continue
-		}
-		const metainfoName = ".metainfo.xml"
-		fns := c.FileList()
-		for _, fn := range fns {
-			if strings.HasSuffix(fn, metainfoName) {
-				// Found the required file.
-				continue cabFile
-			}
-		}
-		t.Errorf("Cabinet file downloaded from %q misses *%s member; file list: %v", url, metainfoName, fns)
+	for _, u := range urls {
+		parseFile(t, c, u)
 	}
 }
