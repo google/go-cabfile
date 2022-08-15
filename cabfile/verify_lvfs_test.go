@@ -67,12 +67,15 @@ func TestLVFSFileParsing(t *testing.T) {
 	// TODO: Unpack the cabs using gcab and verify that the content is
 	// hash-identical to cabfile's unpacking method.
 
+	t.Logf("Fetching %s...", metadataURL)
 	urls, err := artifacts(c, metadataURL)
 	if err != nil {
 		t.Fatalf("Could not ingest metadata from %q: %v", metadataURL, err)
 	}
+	t.Logf("Found %d artifacts.", len(urls))
 cabFile:
 	for _, url := range urls {
+		t.Logf("Fetching %s...", url)
 		req, err := http.NewRequest("GET", url, nil)
 		req.Header.Add("User-Agent", "Go-cabfile")
 		resp, err := c.Do(req)
